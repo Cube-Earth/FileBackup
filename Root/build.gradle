@@ -1,0 +1,64 @@
+plugins {
+	id 'java'
+    id 'distribution'
+}
+
+
+
+//distZip.dependsOn project(':FileBackup').assembleMainDist
+
+
+task srcZip(type: Zip) {
+    archiveClassifier.set('src')
+    from projectDir
+    include 'gradle/**'
+    include '*.gradle', 'gradlew*'
+}
+
+distZip.dependsOn getTasksByName('srcZip', true)
+
+
+distributions {
+    main {
+		distributionBaseName = "Delivery-FileBackup"
+
+    	contents {
+//        	baseName "Delivery"
+
+
+			into('/FileBackup') {
+				
+ 				from { 
+ 					def x = []
+ 					project(':FileBackup').distZip.outputs.files.each { f -> x << zipTree(f) }
+ 					return x
+ 				}
+            }
+
+//            into('/') {
+// 				from { project(':FileBackup').distZip.outputs.files }
+//				fileMode = 0750
+//           }
+
+		}
+	}
+    backup {
+        distributionBaseName = 'FileBackup-backup_' + new Date().format('yyyyMMdd_HHmmss')
+//        distributionClassifier = 'backup'
+        contents {
+		    from project(":ce-assertions").tasks['srcZip'].outputs.files
+		    from project(":ce-assertions").srcZip.outputs.files
+		    from project(":FileBackup").srcZip.outputs.files
+		    from project(":ZipWebBrowser").srcZip.outputs.files
+		    from project.srcZip.outputs.files
+        }
+    }
+}
+
+//backupDistZip.dependsOn getTasksByName('srcZip', true)
+
+//tasks.named("backupDistZip") { dependsOn("srcZip") }
+
+//tasks.named("backupDistZip") { dependsOn(getTasksByName('srcZip', true)) }
+
+

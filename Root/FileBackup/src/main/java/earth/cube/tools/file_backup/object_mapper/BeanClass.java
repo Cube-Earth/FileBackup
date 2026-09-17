@@ -1,0 +1,268 @@
+package earth.cube.tools.file_backup.object_mapper;
+
+import java.lang.reflect.AccessibleObject;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import earth.cube.tools.file_backup.object_mapper.adapter.IAdapter;
+import earth.cube.tools.file_backup.object_mapper.annotations.AfterLoading;
+import earth.cube.tools.file_backup.object_mapper.annotations.Attribute;
+
+public class BeanClass<T> {
+	
+	public static Pattern variablePrefix = Pattern.compile("^_*([bsndf](?=[a-zA-Z]))?");
+
+	protected final static Pattern _methodPattern = Pattern.compile("^(get|set)([a-zA-Z_].*)$");
+	
+	protected Class<T> _clazz;
+	protected Map<String,IAttributeGetter> _getters = new HashMap<>();
+	protected Map<String,IAttributeSetter> _setters = new HashMap<>();
+	protected List<Method> _afterMapping = new ArrayList<>();
+
+	protected String _sScope;
+
+	private boolean _bRaiseExceptions;
+	
+	
+	public BeanClass(Class<T> clazz, boolean bRaiseExceptions) throws Exception {
+		_clazz = clazz;
+		_sScope = "";
+		_bRaiseExceptions = bRaiseExceptions;
+		
+		analyzeClass();
+	}
+
+	public BeanClass(Class<T> clazz, String sScope, boolean bRaiseExceptions) throws Exception {
+		_clazz = clazz;
+		_sScope = sScope;
+		_bRaiseExceptions = bRaiseExceptions;
+
+		analyzeClass();
+	}
+	
+
+	protected String getScopedName(AccessibleObject member) {
+		Attribute[] attrs = member.getAnnotationsByType(Attribute.class);
+		for(Attribute attr : attrs) {
+			if(attr.scope().equals(_sScope)) {
+				return attr.name();
+			}
+		}
+		return null;
+	}
+	
+	protected boolean isAfterLoading(AccessibleObject member) {
+		AfterLoading[] annotations = member.getAnnotationsByType(AfterLoading.class);
+		for(AfterLoading a : annotations) {
+			if(a.scope().equals(_sScope)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	protected String transformName1(String sName) {
+		return Character.toLowerCase(sName.charAt(0)) + sName.substring(1);
+	}
+
+	protected String transformName2(String sName) {
+		StringBuilder sb = new StringBuilder();
+		boolean bFirst = true;
+		for(String s : sName.split("_")) {
+			if(bFirst) {
+				bFirst = false;
+				sb.append(s.toLowerCase());
+			}
+			else {
+				sb.append(Character.toUpperCase(s.charAt(0)));
+				if(s.length() > 1)
+					sb.append(s.substring(1).toLowerCase());
+			}
+		}
+		return sb.toString();
+	}
+	
+	public void analyzeClass() throws Exception {
+		String sName;
+		boolean bOverride;
+		Set<String> overridden = new HashSet<>();
+		
+		for(Method m : _clazz.getDeclaredMethods()) {
+			boolean bGrantAccess = false;
+			bOverride = false;
+			
+			if(isAfterLoading(m)) {
+				_afterMapping.add(m);
+				bGrantAccess = true;
+			}
+			else
+				if(m.getParameterCount() < 2) {
+					Matcher matcher = _methodPattern.matcher(m.getName());
+					if(matcher.matches()) {
+						sName = getScopedName(m);
+						if(sName == null)
+							sName = transformName1(matcher.group(2));
+						else
+							bOverride = !overridden.contains(sName);
+						if(bOverride)
+							overridden.add(sName);
+						
+						if(matcher.group(1).equals("get")) {
+							if(m.getParameterCount() == 0 && (bOverride || !_getters.containsKey(sName))) {
+								_getters.put(sName, new BeanGetter(m));
+								_getters.put(sName.toLowerCase(), new BeanGetter(m));
+								bGrantAccess = true;
+							}
+						}
+						else
+							if(matcher.group(1).equals("set")) {
+								if(m.getParameterCount() == 1 && (bOverride || !_setters.containsKey(sName))) {
+									_setters.put(sName, new BeanSetter(m));
+									_setters.put(sName.toLowerCase(), new BeanSetter(m));
+									bGrantAccess = true;
+								}
+							}
+					}
+				}
+			if(bGrantAccess && !m.isAccessible()) {
+				m.setAccessible(true);
+			}
+		}
+
+		for(Field f : _clazz.getDeclaredFields()) {
+			bOverride = false;
+			sName = getScopedName(f);
+			if(sName == null) {
+				sName = variablePrefix.matcher(f.getName()).replaceFirst("");
+				sName = transformName1(sName);
+			}
+			else
+				bOverride = !overridden.contains(sName);
+			if(bOverride)
+				overridden.add(sName);
+			BeanField bf = new BeanField(f);
+			boolean bGrantAccess = false;
+			if(bOverride || !_getters.containsKey(sName)) {
+				_getters.put(sName, bf);
+				_getters.put(sName.toLowerCase(), bf);
+				bGrantAccess = true;
+			}
+			if(bOverride || !_setters.containsKey(sName)) {
+				_setters.put(sName, bf);
+				_setters.put(sName.toLowerCase(), bf);
+				bGrantAccess = true;
+			}
+			if(bGrantAccess && !Modifier.isStatic(f.getModifiers()) && !f.isAccessible()) {
+				f.setAccessible(true);
+			}
+		}
+
+	}
+	
+	public T newInstance() throws Exception {
+		return _clazz.getDeclaredConstructor().newInstance();
+	}
+	
+	public void setValue(T instance, String sAttributeName, Object value) throws Exception {
+		IAttributeSetter setter = _setters.get(transformName2(sAttributeName));
+		if(setter == null)
+			setter = _setters.get(transformName1(sAttributeName));
+		if(setter == null)
+			setter = _setters.get(sAttributeName.toLowerCase());
+		if(setter == null)
+			if(_bRaiseExceptions)
+				throw new IllegalStateException("Could not find setter for: " + sAttributeName);
+			else
+				return;
+		setter.set(instance, value);
+	}
+
+	public void setValue(T instance, String sAttributeName, IAdapter<?> adapter) throws Exception {
+		IAttributeSetter setter = _setters.get(transformName2(sAttributeName));
+		if(setter == null)
+			setter = _setters.get(transformName1(sAttributeName));
+		if(setter == null)
+			setter = _setters.get(sAttributeName.toLowerCase());
+		if(setter == null)
+			if(_bRaiseExceptions)
+				throw new IllegalStateException("Could not find setter for: " + sAttributeName);
+			else
+				return;
+		Object value;
+		switch(setter.getType()) {
+
+			case BOOLEAN:
+				value = adapter.getBoolean(sAttributeName);
+				break;
+
+			case INTEGER:
+				value = adapter.getInt(sAttributeName);
+				break;
+
+			case LONG:
+				value = adapter.getLong(sAttributeName);
+				break;
+
+			case DOUBLE:
+				value = adapter.getDouble(sAttributeName);
+				break;
+
+			case STRING:
+				value = adapter.getString(sAttributeName);
+				break;
+
+			case DATE:
+				value = adapter.getDate(sAttributeName);
+				break;
+
+			default:
+				throw new IllegalStateException("Unsupported type: " + setter.getType());
+		}
+		
+		setter.set(instance, value);
+	}
+
+	
+	public Object getValue(T instance, String sAttributeName) throws Exception {
+		IAttributeGetter getter = _getters.get(transformName2(sAttributeName));
+		if(getter == null)
+			getter = _getters.get(transformName1(sAttributeName));
+		if(getter == null)
+			getter = _getters.get(sAttributeName.toLowerCase());
+		if(getter == null)
+			if(_bRaiseExceptions)
+				throw new IllegalStateException("Could not find setter for: " + sAttributeName);
+			else
+				return null;
+		return getter.get(instance);
+	}
+	
+	
+	public void executeAfterLoading(T instance) {
+		Exception l = null;
+		for(Method m : _afterMapping) {
+			try {
+				if(m.getParameterCount() == 0)
+					m.invoke(instance);
+				else
+					m.invoke(instance, _sScope);
+			} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+				l = e;
+			}
+		}
+		if(l != null) {
+			throw new RuntimeException(l);
+		}
+	}
+	
+}

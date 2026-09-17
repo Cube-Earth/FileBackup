@@ -1,0 +1,102 @@
+plugins {
+    id 'eclipse'
+    id 'java'
+    id 'distribution'
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java.toolchain.languageVersion.set(JavaLanguageVersion.of(8))
+
+
+test {
+    useJUnitPlatform()
+    
+    testLogging {
+        events 'PASSED', 'FAILED', 'SKIPPED'
+    }    
+
+}
+
+task srcZip(type: Zip) {
+    archiveClassifier.set('src')
+    from projectDir
+    include 'src/**/*'
+    include '*.gradle'
+}
+
+
+// in eclipse: install new software --> https://projectlombok.org/p2
+
+dependencies {
+	annotationProcessor("org.projectlombok:lombok:1.18.28")
+	compileOnly group: 'org.projectlombok', name: 'lombok', version: '1.18.28'
+	
+	compileOnly group: 'javax.servlet', name: 'servlet-api', version: '2.5'
+
+	implementation("com.github.ben-manes.caffeine:caffeine:2.9.3")
+	
+	implementation group: 'org.nanohttpd', name: 'nanohttpd', version: '2.3.1'
+	implementation group: 'org.nanohttpd', name: 'nanohttpd-nanolets', version: '2.3.1'
+	
+
+	implementation group: 'org.apache.commons', name: 'commons-configuration2', version: '2.8.0'
+	implementation group: 'commons-beanutils', name: 'commons-beanutils', version: '1.9.4'
+	implementation 'commons-cli:commons-cli:1.5.0'
+	
+	implementation group: 'com.fasterxml.jackson.core', name: 'jackson-core', version: '2.15.2'
+	implementation group: 'com.fasterxml.jackson.core', name: 'jackson-annotations', version: '2.15.2'
+	implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.15.2'
+
+
+	implementation group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.17.2'
+  	implementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.17.2'
+  	implementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j-impl', version: '2.17.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.1'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.9.1'
+	testImplementation group: 'org.hamcrest', name: 'hamcrest', version: '2.2'
+    
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.1'
+ }
+ 
+
+ext.mainClassName='earth.cube.tools.xyz'
+
+jar {
+  manifest {
+    attributes(
+      'Class-Path': configurations.compileClasspath.collect { it.getName() }.join(' '),
+      'Main-Class': "${{ -> project.hasProperty('mainClassName') ? mainClassName : '' }}",
+      'buildTime': new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ").format(new java.util.Date())
+    )
+  }
+} 
+ 
+distributions {
+    main {
+		distributionBaseName = "${project.name}"
+
+    	contents {
+
+            into('/') {
+ 				from { jar }
+					filePermissions {
+			        	unix(0750)
+				    }					
+ 				from { configurations.runtimeClasspath }
+					filePermissions {
+			        	unix(0750)
+				    }					
+ 				from { sourceSets.main.resources }
+					filePermissions {
+			        	unix(0750)
+				    }					
+            }
+
+		}
+	}
+}
