@@ -12,7 +12,7 @@ Features:
 - An inode has its own change time. Whenever a file (the inode) is touched, the inode change time will be updated to the current time. This includes even if the file modification time is changed. With this mechanism, changed files (inodes) can be reliable and efficient recognized and only for these changes e.g. the sha256 checksum will be recalculated.
 - The sqlite database is used to quickly find duplicates and sha256 checksums.
 - Files are never deleted. If they are deduplicated, they will be moved in its own directory. If they are removed (because of the remove actions), they will be moved in an archive directory. Both directories need to be inspected / deleted manually (with that it is your own decision).
-- MacOS files can have sidecar files (tags, temporary working copies). These are not registered and handled liked normal files. If their "parent" files are (re-)moved, the same automatically applies to the sidecar files. If the "parent" file is deduplicated the sidecar files remain untouched.
+- MacOS files can have sidecar files (tags, temporary working copies). These are not registered and handled liked normal files. If their "parent" files are (re-)moved, the same automatically applies to the sidecar files. If the "parent" file is deduplicated the sidecar files remain untouched. 
 
 
 ## Command Line Options
